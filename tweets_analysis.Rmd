@@ -1,0 +1,1054 @@
+---
+title: "tweets_Analysis"
+author: "Vineet Kapoor"
+date: "June 22, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+if (!require(twitteR)) {install.packages("twitteR")}
+```
+
+## R Markdown
+###scraping tweets from twitter user timeline
+```{r}
+
+####Twitter data from twitter handles
+#install.packages("twitteR")
+library(ROAuth)
+require("SnowballC")
+require("tm")
+require("twitteR")
+require("syuzhet")
+consumer_key <- 'e2zbHdO72bF3KKXPJ8kIJ8P3C'
+consumer_secret <- 'fjb2L0jdDzeJxvodDsEQs7UVYDJty5eWfwtIDTcMk8tZ8SyBcd'
+access_token <- '990292047885094912-KM2rqEfWgVPTXm8K3q12FY6aaYGklTG'
+access_secret <- 'jbCJiQwCR3Bg0vGYDZvpjERxqnSMhT14v584hWtJiEb6X'
+setup_twitter_oauth(consumer_key, consumer_secret, access_token, access_secret)
+
+```
+
+
+```{r}
+
+tweets <- userTimeline("Bitcoin", n=500)
+tweets_ethereum <- userTimeline("ethereum", n=500)
+tweets_ripple <- userTimeline("Ripple", n=500)
+tweets_news <- userTimeline("CryptoBoomNews", n=500)
+tweets_blockchain <- userTimeline("Blockchain", n=500)
+
+```
+
+
+```{r}
+
+
+###the frequency of bitcoin tweets per day
+bitcoin_tweets=twListToDF(tweets)
+bitcoin_tweets$date=as.Date(bitcoin_tweets$created,format="%Y-%m-%d" )
+plot(table(bitcoin_tweets$date),type = "o",main=" Frequency of bitcoin tweets on daily basis ",xlab="day",ylab="number of tweets",col=556,lty = 6 )
+#mean(table(bitcoin_tweets$date))###9.3260
+```
+
+```{r}
+###the frequency of ethereum tweets per day
+ethereum_tweets=twListToDF(tweets_ethereum)
+ethereum_tweets$date=as.Date(ethereum_tweets$created,format="%Y-%m-%d" )
+plot(table(ethereum_tweets$date),type = "o",main=" Frequency of ethereum tweets on daily basis ",xlab="day",ylab="number of tweets",col=556,lty = 6)
+mean(table(ethereum_tweets$date))  ##1.53
+```
+
+```{r}
+###the frequency of bloackchain tweets per day
+block_tweets=twListToDF(tweets_blockchain)
+block_tweets$date=as.Date(block_tweets$created,format="%Y-%m-%d" )
+plot(table(block_tweets$date),type = "o",main=" Frequency of blockchain tweets on daily basis ",xlab="day",ylab="number of tweets",col=556,lty = 6 )
+mean(table(block_tweets$date))
+```
+
+```{r}
+
+####here aggreate function is used to group tweets by date and return maximum number of retweetCount on a day.
+library(magrittr)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(wordcloud)
+```
+
+```{r}
+##bitcoin followers engagement Vs ethereum followers engagement
+retweet=aggregate(retweetCount ~ date, data = bitcoin_tweets, max)
+ggplot(retweet,aes(x=date,y=retweetCount))+geom_bar(stat = "identity",col=118) + labs(title = "Bitcoin followers Engagement") + theme_bw()
+
+```
+
+```{r}
+###ethereum tweets followers
+retweet_ethereum=aggregate(retweetCount ~ date, data = ethereum_tweets, max)
+ggplot(retweet_ethereum,aes(x=date,y=retweetCount))+geom_bar(stat = "identity",col=118) + labs(title = "ethereum followers Engagement") + theme_bw()
+
+```
+
+
+```{r}
+
+### Merging Dataframes for all cryptocurrencies, crypto news and blockchain
+
+n.tweet <- length(tweets)
+tweets.df <- twListToDF(tweets) 
+tweets_ethereum.df <- twListToDF(tweets_ethereum)
+tweets_ripple.df <- twListToDF(tweets_ripple)
+tweets_news.df <- twListToDF(tweets_news)
+tweets_blockchain.df <- twListToDF(tweets_blockchain)
+total_tweets <- rbind(tweets.df,tweets_ethereum.df,tweets_ripple.df,tweets_news.df)
+
+```
+
+```{r}
+
+cleantxt <- function(text)
+{
+
+  temp  =  gsub("^\\s+|\\s+$", "",text) 
+  temp <- str_replace_all(temp,">", "") 
+  temp <- str_replace_all(temp,"<", "") 
+  temp <- removeNumbers(temp)
+  temp <- gsub("?(f|ht)tp(s?)://(.*)[.][a-z]+", "", temp)
+  temp <- gsub("$","",temp)
+  temp <- gsub("--","",temp)
+  temp <- gsub("/","",temp)
+  temp <-  gsub("\\W*\\b\\w\\b\\W*","",temp)
+  temp  =  gsub("<.*?>", "", temp)  
+  temp <- gsub("http.*","",temp)
+  temp <- gsub("https.*","",temp)
+  temp <- gsub("#.*","",temp)
+  #temp <- gsub("@.*","",temp) 
+  return(temp)
+  }
+  
+tweets_2 <- cleantxt(total_tweets$text)
+
+
+```
+
+#Taking all tweets from all the user timelines except blockchain
+```{r}
+library(udpipe)
+library(textrank)
+library(lattice)
+library(igraph)
+library(ggraph)
+library(ggplot2)
+library(wordcloud)
+library(stringr)
+```
+
+```{r}
+str(tweets_2)
+english_model = udpipe_load_model("./english-ud-2.0-170801.udpipe")  # file_model only needed
+x <- udpipe_annotate(english_model, x = tweets_2) #%>% as.data.frame() %>% head()
+x <- as.data.frame(x)
+head(x, 4)
+```
+
+```{r}
+# So what're the most common nouns in cryptocurrencies corpus
+all_nouns = x %>% subset(., upos %in% "NOUN") 
+top_nouns = txt_freq(all_nouns$lemma)  # txt_freq() calcs noun freqs in desc order
+head(top_nouns, 10) 
+```
+
+```{r}
+# general (non-sentence based) Co-occurrences
+bitcoin_cooc_gen <- cooccurrence(x = x$lemma, 
+                               relevant = x$upos %in% c("NOUN", "ADJ")) # 0.00 secs
+
+```
+
+```{r}
+# Sentence Co-occurrences for nouns or adj only
+bitcoin_cooc <- cooccurrence(     # try `?cooccurrence` for parm options
+  x = subset(x, upos %in% c("NOUN", "ADJ")), 
+  term = "lemma", 
+  group = c("doc_id", "paragraph_id", "sentence_id"))  # 0.02 secs
+# str(nokia_cooc)
+head(bitcoin_cooc)
+
+# Visualising top-30 co-occurrences using a network plot
+library(igraph)
+library(ggraph)
+library(ggplot2)
+
+wordnetwork <- head(bitcoin_cooc, 30)
+wordnetwork <- igraph::graph_from_data_frame(wordnetwork) # needs edgelist in first 2 colms.
+
+ggraph(wordnetwork, layout = "fr") +  
+  
+  geom_edge_link(aes(width = cooc, edge_alpha = cooc), edge_colour = "blue") +  
+  geom_node_text(aes(label = name), col = "darkgreen", size = 5) +
+  
+  theme_graph(base_family = "Arial Narrow") +  
+  theme(legend.position = "none") +
+  
+  labs(title = "Cooccurrences within 3 words distance", subtitle = "Nouns & Adjective")
+```
+
+
+```{r}
+###wordcloud of nouns
+library(wordcloud)
+wordcloud(words = top_nouns$key, 
+          freq = top_nouns$freq, 
+          min.freq = 2, 
+          max.words = 100,
+          random.order = FALSE, 
+          colors = brewer.pal(6, "Dark2"))
+```
+
+###comapring the tweets from cryptocurrencies with blockchain tweets
+```{r}
+
+tweets_3  <- cleantxt(tweets_blockchain.df$text)
+english_model = udpipe_load_model("./english-ud-2.0-170801.udpipe")  # file_model only needed
+x <- udpipe_annotate(english_model, x = tweets_3) #%>% as.data.frame() %>% head()
+x <- as.data.frame(x)
+head(x, 4)
+```
+
+```{r}
+# So what're the most common nouns? verbs?
+all_nouns = x %>% subset(., upos %in% "NOUN") 
+top_nouns = txt_freq(all_nouns$lemma)  # txt_freq() calcs noun freqs in desc order
+head(top_nouns, 10) 
+```
+
+
+###
+```{r}
+# general (non-sentence based) Co-occurrences
+block_cooc_gen <- cooccurrence(x = x$lemma, 
+                               relevant = x$upos %in% c("NOUN", "ADJ")) # 0.00 secs
+# str(nokia_cooc_gen)
+head(block_cooc_gen)
+
+```
+
+```{r}
+# Sentence Co-occurrences for nouns or adj only
+block_cooc <- cooccurrence(     # try `?cooccurrence` for parm options
+  x = subset(x, upos %in% c("NOUN", "ADJ")), 
+  term = "lemma", 
+  group = c("doc_id", "paragraph_id", "sentence_id"))  # 0.02 secs
+# str(nokia_cooc)
+head(block_cooc)
+
+# Visualising top-30 co-occurrences using a network plot
+library(igraph)
+library(ggraph)
+library(ggplot2)
+
+wordnetwork <- head(block_cooc, 50)
+wordnetwork <- igraph::graph_from_data_frame(wordnetwork) # needs edgelist in first 2 colms.
+
+ggraph(wordnetwork, layout = "fr") +  
+  
+  geom_edge_link(aes(width = cooc, edge_alpha = cooc), edge_colour = "orange") +  
+  geom_node_text(aes(label = name), col = "darkgreen", size = 4) +
+  
+  theme_graph(base_family = "Arial Narrow") +  
+  theme(legend.position = "none") +
+  
+  labs(title = "Cooccurrences within 3 words distance", subtitle = "Nouns & Adjective")
+```
+
+
+```{r}
+###wordcloud of nouns
+library(wordcloud)
+wordcloud(words = top_nouns$key, 
+          freq = top_nouns$freq, 
+          min.freq = 2, 
+          max.words = 100,
+          random.order = FALSE, 
+          colors = brewer.pal(6, "Dark2"))
+```
+
+
+
+```{r}
+##### to make sentiments dataframe using get_nrc_sentiment function
+word.df <- as.vector(tweets_2)
+emotion.df <- get_nrc_sentiment(word.df)
+emotion.df2 <- cbind(tweets_2, emotion.df) 
+head(emotion.df2)
+
+```
+
+
+```{r}
+############ Most positive sentiment line
+
+sent.value <- get_sentiment(word.df)
+most.positive <- word.df[sent.value == max(sent.value)]
+most.positive
+
+```
+
+```{r}
+########### Most negative sentiment line
+
+most.negative <- word.df[sent.value <= min(sent.value)] 
+most.negative 
+
+```
+
+```{r}
+positive.tweets <- word.df[sent.value > 0]
+length(positive.tweets)
+```
+
+
+```{r}
+#####
+negative.tweets <- word.df[sent.value < 0] 
+length(negative.tweets)
+```
+```{r}
+####
+neutral.tweets <- word.df[sent.value == 0]
+length(neutral.tweets)
+
+```
+
+```{r}
+#remove.packages("twitteR")
+#remove.packages("qdap")
+###using qdap
+#install.packages("qdap")
+library(qdap)
+library(tidytext)
+library(tidyverse)
+
+```
+
+```{r}
+
+x <- iconv(tweets_2, 'utf-8', 'ascii', sub='')
+x = gsub("[[:digit:]]", "", x)
+library(openssl)
+`[[.qdap_hash` <- `[[.data.frame`
+wc = pol$all[,2] #wordcount in each document
+pos.words  = pol$all[,4]        # Positive words info
+neg.words  = pol$all[,5]        # Negative words info 
+```
+
+
+```{r}
+# juxtapose qdap output against text in corpus 
+qdap_outp = x %>% 
+  data_frame() %>%
+  data.frame(., pol$all) %>%
+  select(text.var, wc, polarity, pos.words, neg.words) 
+```
+
+```{r}
+
+#Summarize polarity scores for the corpus
+head(pol$group)
+```
+
+
+```{r}
+# Positive words list, do ?dplyr::setdiff
+positive_words = unique(setdiff(unlist(pos.words),"-"))   
+# Print all the positive words found in the corpus
+print(positive_words)  
+
+```
+
+
+```{r}
+# Negative words list
+negative_words = unique(setdiff(unlist(neg.words),"-"))  
+print(negative_words)       # Print all neg words
+```
+
+```{r}
+###Which docs are most positive and negative in the corpus?
+textdf = data_frame(text = x) 
+senti.bing = textdf %>%
+  
+  mutate(linenumber = row_number()) %>%   # build line num variable
+  ungroup() %>%
+  unnest_tokens(word, text) %>%
+  
+  inner_join(get_sentiments("bing")) %>%
+  
+  count(sentiment, index = linenumber %/% 1, sort = FALSE) %>%
+  mutate(method = "bing")    # creates a column with method name
+
+tail(senti.bing)
+
+```
+
+```{r}
+#Now let's see the distribution of positive and negative sentiment within documents across the corpus.
+bing_df = data.frame(senti.bing %>% spread(sentiment, n, fill = 0))
+head(bing_df)
+```
+
+
+```{r}
+###subtracting negative from poisitive score 
+bing_pol = bing_df %>% 
+  mutate(polarity = (positive - negative)) %>%   #create variable polarity = pos - neg
+  arrange(desc(polarity), index)    # sort by polarity
+
+```
+
+```{r}
+###visualising tweets from twitter
+
+require(ggplot2)
+# plotting running sentiment distribution across the analyst call
+ggplot(bing_pol, 
+       aes(index, polarity)) +
+  geom_bar(stat = "identity", show.legend = FALSE,col = "blue") +
+  labs(title = "Sentiment in Bitcoin corpus",
+       x = "doc",  
+       y = "Sentiment")
+```
+
+
+```{r}
+###We want to see which words contributed most to positive or neg sentiment 
+#in the bitcoin corpus using the bing lexicon.
+#So first we create a count of bing sentiment words that occur a lot in the corpus.
+
+bing = get_sentiments("bing")  
+
+bing_word_counts <- textdf %>%
+  unnest_tokens(word, text) %>%
+  inner_join(bing) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  ungroup()
+
+
+bing_word_counts
+
+```
+
+```{r}
+###visualize
+
+bing_word_counts %>%
+  filter(n > 3) %>%
+  mutate(n = ifelse(sentiment == "negative", -n, n)) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n, fill = sentiment)) +
+  geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab("Contribution to sentiment")
+```
+
+```{r}
+#####wordclouds
+require(wordcloud)
+# build wordcloud of commonest tokens
+textdf %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words) %>%
+  count(word) %>%
+  with(wordcloud(word, n, scale=c(5,0.5), max.words=100, random.order=FALSE, rot.per=0.35, use.r.layout=FALSE, colors=brewer.pal(8, "Dark2")))
+
+```
+
+
+```{r}
+nrc = get_sentiments("nrc")
+
+
+senti.nrc = textdf %>%
+  mutate(linenumber = row_number()) %>%
+  ungroup() %>%
+  
+  # word-tokenize & merge nrc sentiment words
+  unnest_tokens(word, text) %>%
+  inner_join(get_sentiments("nrc")) %>%
+  count(sentiment, index = linenumber %/% 1, sort = FALSE) %>%  # %/% gives quotient
+  mutate(method = "nrc")
+
+```
+
+
+```{r}
+senti.nrc %>% tail()
+senti.nrc$sentiment
+##trust, sadness, positive, suprise, negative, joy, fear,disgust, anticipation, anger
+```
+
+
+```{r}
+a = data.frame(senti.nrc %>% spread(sentiment, n, fill = 0))
+head(a)
+
+```
+
+
+```{r}
+###what joyful words most occurred in the corpus.
+bitcoin_joy = textdf %>%
+  unnest_tokens(word, text) %>%
+  inner_join(nrc) %>%
+  filter(sentiment == "joy") %>%
+  count(word, sort = TRUE)
+
+bitcoin_joy %>% head()
+```
+
+
+```{r}
+###what fearful words most occurred in the corpus.
+bitcoin_fear = textdf %>%
+  unnest_tokens(word, text) %>%
+  inner_join(nrc) %>%
+  filter(sentiment == "fear") %>%
+  count(word, sort = TRUE)
+
+bitcoin_fear %>% head()
+```
+
+
+###Live streaming of tweets from twitter
+```{r}
+#############  Sentiment analysis on Live streaming data from twitter.
+library(ROAuth)
+consumer_key = "e2zbHdO72bF3KKXPJ8kIJ8P3C"
+consumer_secret = "fjb2L0jdDzeJxvodDsEQs7UVYDJty5eWfwtIDTcMk8tZ8SyBcd"
+requestURL <- "https://api.twitter.com/oauth/request_token"
+accessURL <- "https://api.twitter.com/oauth/access_token"
+authURL <- "https://api.twitter.com/oauth/authorize"
+my_oauth <- OAuthFactory$new(consumerKey=consumer_key,
+                             consumerSecret=consumer_secret, requestURL=requestURL,
+                             accessURL=accessURL, authURL=authURL)
+
+my_oauth$handshake(cainfo = system.file("CurlSSL", "cacert.pem", package = "RCurl"))
+
+library(streamR)
+
+filterStream(file.name="crypto.json", track="cryptocurrency", 
+             timeout=300, oauth=my_oauth)
+
+```
+
+
+```{r}
+crypto_tweets <- parseTweets("crypto.json")
+colnames(crypto_tweets)
+View(crypto_tweets)
+
+```
+
+
+###Bitcoin tweets
+```{r}
+
+filterStream(file.name="btc.json", track="bitcoin", 
+             timeout=300, oauth=my_oauth)
+bitcoin_tweets <- parseTweets("btc.json")
+
+```
+
+####Ethereum tweets
+```{r}
+
+filterStream(file.name="ethereum.json", track="ethereum", 
+             timeout=100, oauth=my_oauth)
+ethereum_tweets <- parseTweets("ethereum.json")
+
+``` 
+
+
+```{r}
+### hashtags in cryptocurrency tweets
+
+crypto_hashtags = str_extract_all(crypto_tweets$text, "#\\w+")
+class(crypto_hashtags)
+crypto_hashtags =  unlist(crypto_hashtags, recursive = TRUE)
+crypto_tags_freq = table(crypto_hashtags)
+crypto_tags_freq <- sort(crypto_tags_freq,decreasing = TRUE)
+head(crypto_tags_freq,20)  #top 20
+```
+
+```{r}
+
+####hashtags in bitcoin
+btc_hashtags = str_extract_all(bitcoin_tweets$text, "#\\w+")
+class(btc_hashtags)
+btc_hashtags =  unlist(btc_hashtags, recursive = TRUE)
+btc_tags_freq = table(btc_hashtags)
+btc_tags_freq <- sort(btc_tags_freq,decreasing = TRUE)
+head(btc_tags_freq,20)  #top 20
+
+```
+
+```{r}
+
+### wordcloud of bitcoin tweets
+require(tm)
+require(RColorBrewer)
+wordcloud(names(btc_tags_freq), btc_tags_freq, random.order=FALSE, colors = brewer.pal(12, "Paired"))
+```
+
+```{r}
+
+## wordcloud of cryptocurrency tweets
+require(tm)
+require(RColorBrewer)
+### wordcloud
+wordcloud(names(crypto_tags_freq), crypto_tags_freq, random.order=FALSE, colors = brewer.pal(12, "Paired"))
+
+```
+
+#Sentiment Analysis of Bitcoin tweets using sentimentr
+```{r}
+require(sentimentr)
+mytext <- bitcoin_tweets$text
+mytext <- get_sentences(mytext)
+ df <- sentiment_by(mytext)
+
+```
+
+```{r}
+class(df)
+```
+
+
+```{r}
+df$sentiment[df$ave_sentiment < 0 & df$ave_sentiment >= -1 ] <- -1 
+df$sentiment[df$ave_sentiment  > 0 & df$ave_sentiment <= 1] <- 1
+df$sentiment[df$ave_sentiment == 0] <- 0
+
+```
+
+```{r}
+z <- bitcoin_tweets$text
+y <- df$sentiment
+data <- data.frame(y,z)
+head(data,10)
+```
+
+
+```{r}
+# if (!require(RTextTools)) install.packages("RTextTools")
+library("tm")
+library("RTextTools")
+library(magrittr)
+colnames(data) = c('sentiment','text')  # Rename variables
+head(data) 
+
+
+```
+
+
+### Step 2- Split sample into two to evaluate model accuracy
+
+We split the above data into two parts:
++  a *calibration* sample, upon which the model trains, and 
++  a *validation* sample, to measure model accuracy.
+  
+See below.    
+
+```{r}
+set.seed(12345)                 # To fix the sample 
+samp_id = sample(1:nrow(data),
+                 round(nrow(data)*.70), # 70% records 4 training
+                 replace = F)
+
+train = data[samp_id,]      # 70% of training sample
+test = data[-samp_id,]      # remaining 30% of training sample
+
+dim(test) ; dim(train)
+```
+
+### Step 3- Process the text data and create DTM
+
+I'm using the `tm` package here for dtm building. We could alternately use the `tidytext` way to build DTMs.  
+
+Note that I'm using TFIDF weighing for the training data. In several text classification exercises, IDF provides better performance.   
+
+That said, checking and comparing against TF performance is well recommended.
+
+```{r dtm.build}
+train.data = rbind(train,test)    # join the data sets
+
+text = train.data$text   
+text <- as.character(text)
+text = removePunctuation(text)    # remove punctuation marks
+text = removeNumbers(text)        # remove numbers
+text = stripWhitespace(text)      # remove blank space
+cor = Corpus(VectorSource(text))  # Create text corpus
+dtm = DocumentTermMatrix(cor, 
+                         control = list(weighting =      
+                          function(x)
+                          weightTfIdf(x, normalize = F)))
+
+training_codes = train.data$sentiment       # Coded labels
+# dim(dtm)    # 7086 x 2118
+dtm[1:6, 1:6]
+```
+ 
+A motley bunch of supervised machine learning models is now available for use under the `train_models()` func:  
+
++  MAXENT for Maximum Entropy  
++  SVM for Support Vector Machine  
++  slda for Stabilized Linear Discriminant Analysis  
++  TREE for decision trees  
++  BAGGING for Bootstrap Aggegation  
++  BOOSTING for overweighing misclassified samples  
++  RF for Random Forests  
++  GLMNET for regularized regressions (lasso, elasti net etc)
+
+
+```{r containerize_run}
+x <- train 
+## building containers around the data samples
+container = create_container(dtm,
+                             length(training_codes),
+                             trainSize = 1:(nrow(x)),
+                             testSize = 
+                             (nrow(train)+1): nrow(train.data),
+                             virgin=TRUE)
+
+class(container)
+
+## Run a couple of algos and build results df
+system.time({
+models <- train_models(container, 
+                       algorithms = c("MAXENT", "SVM")) 
+#                                      "GLMNET", "SLDA", "TREE",
+#                                      "BAGGING", "BOOSTING",
+#                                      "RF")) 
+
+  })   # ~ 4 secs
+
+results = classify_models(container, models)
+str(results)
+
+# clubbing text & label with prediction
+text_n_results = data.frame(test, results)
+text_n_results %>% head() 
+
+```
+
+### View results via create_analytics()
+
+Here, we see the ingenuity of the `container` object's operations. Let the container's output be captured in data object `analytics` (say). Then:  
+
++  analytics@algorithm_summary: yields the summary of precision, accuracy, recall and F-scores for eah algo  
++  analytics@label_summary: yields a summary of label accuracy  
++  analytics@document_summary: raw summary of all data and scoring 
++  analytics@ensemble_summary: A summary of ensemble precision/coverage. 
+
+Let's use these funcs and view the results.
+
+```{r view.results}
+# create the analytics object
+analytics = create_analytics(container, results)
+class(analytics)
+ str(analytics)
+
+# view obj attribs
+head(analytics@label_summary)
+head(analytics@document_summary)
+analytics@ensemble_summary
+
+## --- can save these as csv to your working dir 
+# write.csv(analytics@algorithm_summary,"SampleData_AlgorithmSummary.csv")
+# write.csv(analytics@label_summary,"SampleData_LabelSummary.csv")
+# write.csv(analytics@document_summary,"SampleData_DocumentSummary.csv")
+# write.csv(analytics@ensemble_summary,"SampleData_EnsembleSummary.csv")
+```
+
+Instead of running many models simultaneously in a horse race, we can take one model alone (say, maxent) and examine its results a little more closely.  
+
+```{r maxent}
+# Just check one algorithm
+models = train_models(container, algorithms=c("MAXENT")) 
+
+results = classify_models(container, models)
+
+head(results)
+
+# create results df with more detail
+out = data.frame(model_sentiment = results$MAXENTROPY_LABEL,
+                 model_prob = results$MAXENTROPY_PROB,
+                 actual_sentiment = train.data$sentiment[(nrow(train)+1):nrow(train.data)])
+
+# building confusion matrix
+(z = as.matrix(table(out[,1],out[,3])))
+(pct = round(((z[1,1]+z[2,2])/sum(z))*100,2))
+```
+
+#### Step 5- Process the training data and test data together
+
+```{r trg.test}
+data.test = crypto_tweets$text
+data.test <- data.frame(data.test)
+colnames(data.test) = 'text'
+
+set.seed(12345)
+# randomly Selecting only 500 rows for demonstration purpose
+data.test1 = data.test[sample(1:nrow(data.test),500),] 
+  
+text = data.test1
+text <- as.character(text)
+text = removePunctuation(text)
+text = removeNumbers(text)
+text = stripWhitespace(text)
+cor = Corpus(VectorSource(text))
+dtm.test = DocumentTermMatrix(cor, 
+                              control = list(weighting = 
+                                 function(x)
+                                 weightTfIdf(x, normalize = F)))
+       nrow(dtm.test)                                                        
+row.names(dtm.test) = (nrow(dtm)+1):(nrow(dtm)+nrow(dtm.test))
+
+dtm.f = c(dtm, dtm.test)
+
+training_codes.f = c(training_codes,rep(NA,length(data.test1)))
+```
+
+#### Step 6- Predict the test data
+
+```{r}
+## building containers around the data samples
+
+container.f = create_container(dtm.f,t(training_codes.f),trainSize=1:(nrow(dtm.test)), testSize = (nrow(dtm)+1):(nrow(dtm)+nrow(dtm.test)), virgin = F)
+
+model.f = train_models(container.f, algorithms=c("MAXENT")) 
+predicted <- classify_models(container.f, model.f)
+
+out = data.frame(model_sentiment = predicted$MAXENTROPY_LABEL,
+                 model_prob = predicted$MAXENTROPY_PROB,
+                 text = data.test1)
+head(out,10)
+write.csv(out,'Sentiments classified.csv')
+```
+
+```{r}
+c <- prop.table(table(out$model_sentiment))
+plot(c,type = "h", col = "red", lwd = 10,main = "proportion of tweets in random sample",xlab = "sentiment")
+```
+
+```{r}
+require(sentimentr)
+mytext1 <- crypto_tweets$text
+mytext1<- get_sentences(mytext1)
+ df1 <- sentiment_by(mytext1)
+
+```
+
+```{r}
+class(df1)
+```
+
+
+```{r}
+df1$sentiment[df1$ave_sentiment < 0 & df1$ave_sentiment >= -1 ] <- -1 
+df1$sentiment[df1$ave_sentiment  > 0 & df1$ave_sentiment <= 1] <- 1
+df1$sentiment[df1$ave_sentiment == 0] <- 0
+
+```
+
+```{r}
+c<- prop.table(table(df1$sentiment))
+
+plot(c,type = "h", col = "red", lwd = 10,main = "proportion of tweets in actual population",xlab = "sentiment")
+```
+
+analysing the sentiments in USA
+```{r}
+# for bitcoin
+
+filterStream(file.name="tweets_geo.json", locations=c(-125, 25, -66, 50),track = "bitcoin",
+             timeout=100, oauth=my_oauth)
+
+tweets_geo_tweets <- parseTweets("tweets_geo.json")
+
+###analysis of hashtags
+tweets_geo_tweets_hashtags = str_extract_all(tweets_geo_tweets$text, "#\\w+")
+
+# put tags in vector
+tweets_geo_tweets_hashtags= unlist(tweets_geo_tweets_hashtags)
+# calculate hashtag frequencies
+tweets_geo_tweets_hashtags_freq = table(tweets_geo_tweets_hashtags)
+tweets_geo_tweets_hashtags_freq<- sort(tweets_geo_tweets_hashtags_freq,decreasing = TRUE)
+```
+
+```{r}
+require(sentimentr)
+mytext1 <- tweets_geo_tweets$text
+mytext1<- get_sentences(mytext1)
+ df2 <- sentiment_by(mytext1)
+
+```
+
+```{r}
+class(df2)
+```
+
+
+```{r}
+df2$sentiment[df2$ave_sentiment < 0 & df2$ave_sentiment >= -1 ] <- -1 
+df2$sentiment[df2$ave_sentiment  > 0 & df2$ave_sentiment <= 1] <- 1
+df2$sentiment[df2$ave_sentiment == 0] <- 0
+
+```
+
+```{r}
+c<- prop.table(table(df2$sentiment))
+
+plot(c,type = "h", col = "red", lwd = 10,main = "proportion of sentiments in tweets in US",xlab = "sentiment")
+
+```
+
+
+
+Analysing the sentiments in India
+```{r}
+
+#for bitcoin
+
+filterStream(file.name="tweets_geo_india.json", locations=c(70, 10, 100, 35),track = "bitcoin",
+             timeout=100, oauth=my_oauth)
+
+tweets_geo_tweets <- parseTweets("tweets_geo_india.json")
+
+###analysis of hashtags
+tweets_geo_tweets_hashtags = str_extract_all(tweets_geo_tweets$text, "#\\w+")
+
+# put tags in vector
+tweets_geo_tweets_hashtags= unlist(tweets_geo_tweets_hashtags)
+# calculate hashtag frequencies
+tweets_geo_tweets_hashtags_freq = table(tweets_geo_tweets_hashtags)
+tweets_geo_tweets_hashtags_freq<- sort(tweets_geo_tweets_hashtags_freq,decreasing = TRUE)
+```
+
+```{r}
+require(sentimentr)
+mytext1 <- tweets_geo_tweets$text
+mytext1<- get_sentences(mytext1)
+ df2 <- sentiment_by(mytext1)
+
+```
+
+```{r}
+class(df2)
+```
+
+
+```{r}
+df2$sentiment[df2$ave_sentiment < 0 & df2$ave_sentiment >= -1 ] <- -1 
+df2$sentiment[df2$ave_sentiment  > 0 & df2$ave_sentiment <= 1] <- 1
+df2$sentiment[df2$ave_sentiment == 0] <- 0
+
+```
+
+```{r}
+c<- prop.table(table(df2$sentiment))
+
+plot(c,type = "h", col = "red", lwd = 10,main = "proportion of sentiments in tweets in India",xlab = "sentiment")
+```
+
+
+Analysing the sentiments in Japan
+```{r}
+#for bitcoin
+
+filterStream(file.name="tweets_geo_japan.json", locations=c(130, 30, 145, 45),track = "bitcoin",
+             timeout=100, oauth=my_oauth)
+
+tweets_geo_tweets <- parseTweets("tweets_geo_japan.json")
+
+###analysis of hashtags
+tweets_geo_tweets_hashtags = str_extract_all(tweets_geo_tweets$text, "#\\w+")
+
+# put tags in vector
+tweets_geo_tweets_hashtags= unlist(tweets_geo_tweets_hashtags)
+# calculate hashtag frequencies
+tweets_geo_tweets_hashtags_freq = table(tweets_geo_tweets_hashtags)
+tweets_geo_tweets_hashtags_freq<- sort(tweets_geo_tweets_hashtags_freq,decreasing = TRUE)
+```
+
+```{r}
+require(sentimentr)
+mytext1 <- tweets_geo_tweets$text
+mytext1<- get_sentences(mytext1)
+ df2 <- sentiment_by(mytext1)
+
+```
+
+```{r}
+class(df2)
+```
+
+
+```{r}
+df2$sentiment[df2$ave_sentiment < 0 & df2$ave_sentiment >= -1 ] <- -1 
+df2$sentiment[df2$ave_sentiment  > 0 & df2$ave_sentiment <= 1] <- 1
+df2$sentiment[df2$ave_sentiment == 0] <- 0
+
+```
+
+```{r}
+c<- prop.table(table(df2$sentiment))
+
+plot(c,type = "h", col = "red", lwd = 10,main = "proportion of sentiments in tweets in japan",xlab = "sentiment")
+
+
+```
+
+
+
+##taking tweets of cryptocurrencies user time line
+```{r kmeans.scree}
+
+source("https://raw.githubusercontent.com/sudhir-voleti/code-chunks/master/cba%20tidytext%20funcs%20for%20git%20upload.R")
+
+
+system.time({ 
+  dtm_crypto = tweets_2 %>% 
+                              text.clean() %>% 
+                              dtm_build() %>%
+                              streamline_dtm(min_occur = 0.0025, 
+                                             max_occur = 0.5)
+}) 
+
+```
+
+
+## Func 2: build display aids to view what the text-based clusters are
+```{r display.clus}
+display.clusters <- function(dtm, k)  # k=optimal num of clusters
+{ 
+
+  # K-Means Cluster Analysis
+  fit <- kmeans(dtm, k) # k cluster solution
+
+ for (i1 in 1:max(fit$cluster)){ 
+#	windows()
+	dtm_cluster = dtm[(fit$cluster == i1),] 
+	distill.cog(dtm_cluster) 	} # i1 loop ends
+
+ }  # func ends
+
+display.clusters(dtm_crypto, 4) 
+ 
+ 
+```
+ 
+ 
+Thanks for reading and please give your reviews.
+#The End.
